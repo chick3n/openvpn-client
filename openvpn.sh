@@ -86,6 +86,18 @@ firewall() { local port="${1:-1194}" docker_network="$(ip -o addr show dev eth0|
     [[ -s $route ]] && for net in $(cat $route); do return_route $net; done
 }
 
+firewall2() {
+    ip6tables -P INPUT DROP 2>/dev/null
+    ip6tables -P FORWARD DROP 2>/dev/null
+    ip6tables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+    ip6tables -A INPUT -i lo -j ACCEPT
+    iptables -P INPUT DROP
+    iptables -P FORWARD DROP
+    iptables -A INPUT -m state --state RELATED,ESTABLISHED -j ACCEPT
+    iptables -A INPUT -i lo -j ACCEPT
+}
+
+
 ### return_route: add a route back to your network, so that return traffic works
 # Arguments:
 #   network) a CIDR specified network range
@@ -98,6 +110,11 @@ return_route6() { local network="$1" gw="$(ip -6 route |
     [[ -e $route6 ]] &&grep -q "^$network\$" $route6 ||echo "$network" >>$route6
 }
 
+return_route62() { local network="$1"
+    ip6tables -A INPUT -p tcp -s $network -j ACCEPT 2>/dev/null
+}
+
+
 ### return_route: add a route back to your network, so that return traffic works
 # Arguments:
 #   network) a CIDR specified network range
@@ -108,6 +125,11 @@ return_route() { local network="$1" gw="$(ip route |awk '/default/ {print $3}')"
     iptables -A OUTPUT --destination $network -j ACCEPT
     [[ -e $route ]] && grep -q "^$network\$" $route || echo "$network" >>$route
 }
+
+return_route2() { local network="$1"
+    iptables -A INPUT -p tcp -s $network -j ACCEPT
+}
+
 
 ### vpn: setup openvpn client
 # Arguments:
@@ -230,11 +252,11 @@ while getopts ":hc:df:m:p:R:r:v:" opt; do
         h) usage ;;
         c) cert_auth "$OPTARG" ;;
         d) dns ;;
-        f) firewall "$OPTARG"; touch $route $route6 ;;
+        f) firewall "$OPTARG"; firewall2; touch $route $route6 ;;
         m) MSS="$OPTARG" ;;
         p) eval vpnportforward $(sed 's/^/"/; s/$/"/; s/;/" "/g' <<< $OPTARG) ;;
-        R) return_route6 "$OPTARG" ;;
-        r) return_route "$OPTARG" ;;
+        R) return_route6 "$OPTARG"; return_route62 "$OPTARG" ;;
+        r) return_route "$OPTARG"; return_route2 "$OPTARG" ;;
         v) eval vpn $(sed 's/^/"/; s/$/"/; s/;/" "/g' <<< $OPTARG) ;;
         "?") echo "Unknown option: -$OPTARG"; usage 1 ;;
         ":") echo "No argument value for option: -$OPTARG"; usage 2 ;;
